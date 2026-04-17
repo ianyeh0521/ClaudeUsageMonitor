@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 echo [1/3] Installing dependencies...
-pip install pyinstaller pystray pillow --quiet
+python -m pip install pyinstaller pystray pillow --quiet
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies.
     pause
@@ -23,7 +23,7 @@ if errorlevel 1 (
 )
 
 echo [2/3] Building ClaudeMonitor.exe...
-pyinstaller ^
+python -m PyInstaller ^
     --onefile ^
     --windowed ^
     --name ClaudeMonitor ^
