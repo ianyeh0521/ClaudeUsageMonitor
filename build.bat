@@ -24,11 +24,12 @@ if errorlevel 1 (
 
 echo [2/3] Building ClaudeMonitor.exe...
 python -m PyInstaller ^
-    --onefile ^
+    --onedir ^
     --windowed ^
     --name ClaudeMonitor ^
     --hidden-import pystray._win32 ^
     --hidden-import PIL._tkinter_finder ^
+    --noupx ^
     --clean ^
     claude_monitor.py
 
@@ -44,7 +45,7 @@ del /q ClaudeMonitor.spec 2>nul
 
 echo.
 echo ================================================
-echo  Done!  dist\ClaudeMonitor.exe is ready.
+echo  Done!  dist\ClaudeMonitor\ClaudeMonitor.exe is ready.
 echo ================================================
 echo.
 pause

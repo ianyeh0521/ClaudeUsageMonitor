@@ -30,7 +30,8 @@ POS_PATH      = Path.home() / ".claude" / "claude_monitor_pos.json"
 USAGE_URL     = "https://api.anthropic.com/api/oauth/usage"
 TOKEN_URL     = "https://platform.claude.com/v1/oauth/token"
 CLIENT_ID     = "22422756-60c9-4084-8eb7-27705fd5cf9a"
-REFRESH_SECS  = 60
+REFRESH_SECS        = 300   # background poll interval (seconds)
+MANUAL_COOLDOWN_SECS = 30   # minimum seconds between manual refreshes
 
 # Price per 1 million tokens: (input, output, cache_write, cache_read) USD
 PRICING = {
@@ -221,12 +222,13 @@ class Bar(tk.Canvas):
 # ─── Main application ─────────────────────────────────────────────────────────
 class App:
     def __init__(self) -> None:
-        self._topmost     = True
-        self._auth        = Auth()
-        self._spinning    = False
-        self._spin_i      = 0
-        self._visible     = True
-        self._save_pos_id = None
+        self._topmost        = True
+        self._auth           = Auth()
+        self._spinning       = False
+        self._spin_i         = 0
+        self._visible        = True
+        self._save_pos_id    = None
+        self._last_refresh   = 0.0
         self._build()
         if HAS_TRAY:
             self._setup_tray()
@@ -542,6 +544,12 @@ class App:
 
     def _refresh(self) -> None:
         """Manual refresh triggered by the user — runs in a short-lived thread."""
+        now = time.time()
+        if now - self._last_refresh < MANUAL_COOLDOWN_SECS:
+            remaining = int(MANUAL_COOLDOWN_SECS - (now - self._last_refresh))
+            self.root.after(0, self._show_error, f"Please wait {remaining}s before refreshing")
+            return
+        self._last_refresh = now
         self.root.after(0, self._spin_start)
 
         def task() -> None:
@@ -597,7 +605,21 @@ def ensure_single_instance() -> None:
         sys.exit(0)
 
 
+def set_dpi_aware() -> None:
+    """Enable Per-Monitor DPI awareness so tkinter renders crisp text on HiDPI screens."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per-monitor v1
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    set_dpi_aware()
     ensure_single_instance()
     App().run()
