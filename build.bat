@@ -24,7 +24,7 @@ if errorlevel 1 (
 
 echo [2/3] Building ClaudeMonitor.exe...
 python -m PyInstaller ^
-    --onedir ^
+    --onefile ^
     --windowed ^
     --name ClaudeMonitor ^
     --hidden-import pystray._win32 ^
@@ -45,7 +45,7 @@ del /q ClaudeMonitor.spec 2>nul
 
 echo.
 echo ================================================
-echo  Done!  dist\ClaudeMonitor\ClaudeMonitor.exe is ready.
+echo  Done!  dist\ClaudeMonitor.exe is ready.
 echo ================================================
 echo.
 pause
