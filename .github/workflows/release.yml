@@ -70,6 +70,9 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$PLIST" 2>/dev/null || \
           /usr/libexec/PlistBuddy -c "Set :LSUIElement true"     "$PLIST"
 
+      - name: Sign app (ad-hoc)
+        run: codesign --force --deep --sign - dist/ClaudeMonitor.app
+
       - name: Zip app bundle
         run: cd dist && zip -r ClaudeMonitor-macOS.zip ClaudeMonitor.app
 
