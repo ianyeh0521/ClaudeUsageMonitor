@@ -142,10 +142,27 @@ class Auth:
         self._lock = threading.Lock()
 
     def _load(self) -> dict:
+        if sys.platform == "darwin":
+            import subprocess
+            r = subprocess.run(
+                ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                raise FileNotFoundError("Claude Code credentials not found in Keychain")
+            return json.loads(r.stdout.strip())
         with open(CREDS_PATH, encoding="utf-8") as f:
             return json.load(f)
 
     def _save(self, creds: dict) -> None:
+        if sys.platform == "darwin":
+            import subprocess
+            subprocess.run(
+                ["security", "add-generic-password", "-U",
+                 "-s", "Claude Code-credentials", "-a", "", "-w", json.dumps(creds)],
+                capture_output=True,
+            )
+            return
         with open(CREDS_PATH, "w", encoding="utf-8") as f:
             json.dump(creds, f, indent=2)
 
@@ -238,7 +255,7 @@ class App:
         self._save_pos_id    = None
         self._last_refresh   = 0.0
         self._build()
-        if HAS_TRAY:
+        if HAS_TRAY and sys.platform != "darwin":
             self._setup_tray()
         self._refresh()
         threading.Thread(target=self._bg_loop, daemon=True).start()
@@ -246,6 +263,7 @@ class App:
     # ── Window ────────────────────────────────────────────────────────────────
     def _build(self) -> None:
         root = tk.Tk()
+        root.title("Claude Monitor")
         root.overrideredirect(True)
         root.attributes("-topmost", True)
         root.attributes("-alpha", 0.95)
@@ -259,49 +277,60 @@ class App:
             root.geometry(f"+{sw - WIN_W - 20}+20")
 
         root.bind("<Configure>", self._on_configure)
+        # macOS: clicking the Dock icon restores a hidden window
+        if sys.platform == "darwin":
+            root.createcommand("::tk::mac::ReopenApplication", self._tray_show)
         self.root = root
 
-        # ── Title bar ────────────────────────────────────────────────────────
-        tbar = tk.Frame(root, bg=C["title"], cursor="fleur")
-        tbar.pack(fill="x")
-        tbar.bind("<Button-1>",        self._drag_start)
-        tbar.bind("<B1-Motion>",       self._drag_move)
-        tbar.bind("<Double-Button-1>", self._reset_position)
+        # ── Title bar (Windows only — macOS uses native window + body drag) ──
+        if sys.platform != "darwin":
+            tbar = tk.Frame(root, bg=C["title"], cursor="fleur")
+            tbar.pack(fill="x")
+            tbar.bind("<Button-1>",        self._drag_start)
+            tbar.bind("<B1-Motion>",       self._drag_move)
+            tbar.bind("<Double-Button-1>", self._reset_position)
 
-        title_lbl = tk.Label(
-            tbar, text="  ◉  Claude Monitor",
-            bg=C["title"], fg=C["fg"],
-            font=(UI_FONT, 9, "bold"), pady=6,
-        )
-        title_lbl.pack(side="left")
-        title_lbl.bind("<Button-1>",        self._drag_start)
-        title_lbl.bind("<B1-Motion>",       self._drag_move)
-        title_lbl.bind("<Double-Button-1>", self._reset_position)
+            title_lbl = tk.Label(
+                tbar, text="  ◉  Claude Monitor",
+                bg=C["title"], fg=C["fg"],
+                font=(UI_FONT, 9, "bold"), pady=6,
+            )
+            title_lbl.pack(side="left")
+            title_lbl.bind("<Button-1>",        self._drag_start)
+            title_lbl.bind("<B1-Motion>",       self._drag_move)
+            title_lbl.bind("<Double-Button-1>", self._reset_position)
 
-        # Close ✕  (hide to tray when tray is available, otherwise exit)
-        btn_x = tk.Label(
-            tbar, text=" ✕ ", bg=C["title"], fg=C["dim"],
-            font=(UI_FONT, 9), cursor="hand2", pady=6,
-        )
-        btn_x.pack(side="right")
-        close_cmd = self._hide if HAS_TRAY else root.destroy
-        btn_x.bind("<Button-1>", lambda _: close_cmd())
-        btn_x.bind("<Enter>",    lambda _: btn_x.config(fg=C["red"]))
-        btn_x.bind("<Leave>",    lambda _: btn_x.config(fg=C["dim"]))
+            # Close ✕
+            btn_x = tk.Label(
+                tbar, text=" ✕ ", bg=C["title"], fg=C["dim"],
+                font=(UI_FONT, 9), cursor="hand2", pady=6,
+            )
+            btn_x.pack(side="right")
+            close_cmd = self._hide if HAS_TRAY else root.destroy
+            btn_x.bind("<Button-1>", lambda _: close_cmd())
+            btn_x.bind("<Enter>",    lambda _: btn_x.config(fg=C["red"]))
+            btn_x.bind("<Leave>",    lambda _: btn_x.config(fg=C["dim"]))
 
-        # Pin 📌
-        self.btn_pin = tk.Label(
-            tbar, text=" 📌 ", bg=C["title"], fg=C["fg"],
-            font=(UI_FONT, 9), cursor="hand2", pady=6,
-        )
-        self.btn_pin.pack(side="right")
-        self.btn_pin.bind("<Button-1>", self._toggle_pin)
-        self.btn_pin.bind("<Enter>",    lambda _: self.btn_pin.config(bg=C["bar_bg"]))
-        self.btn_pin.bind("<Leave>",    lambda _: self.btn_pin.config(bg=C["title"]))
+            # Pin 📌
+            self.btn_pin = tk.Label(
+                tbar, text=" 📌 ", bg=C["title"], fg=C["fg"],
+                font=(UI_FONT, 9), cursor="hand2", pady=6,
+            )
+            self.btn_pin.pack(side="right")
+            self.btn_pin.bind("<Button-1>", self._toggle_pin)
+            self.btn_pin.bind("<Enter>",    lambda _: self.btn_pin.config(bg=C["bar_bg"]))
+            self.btn_pin.bind("<Leave>",    lambda _: self.btn_pin.config(bg=C["title"]))
 
         # ── Body ─────────────────────────────────────────────────────────────
         body = tk.Frame(root, bg=C["bg"], padx=12, pady=8)
         body.pack(fill="both", expand=True)
+
+        # macOS: drag the window by clicking anywhere on the body
+        if sys.platform == "darwin":
+            for w in (root, body):
+                w.bind("<Button-1>",        self._drag_start)
+                w.bind("<B1-Motion>",       self._drag_move)
+                w.bind("<Double-Button-1>", self._reset_position)
 
         # 5h row
         tk.Label(body, text="5h Session Limit",
@@ -362,6 +391,15 @@ class App:
         self.lbl_time.bind("<Enter>",    lambda _: self.lbl_time.config(fg=C["fg"]))
         self.lbl_time.bind("<Leave>",    lambda _: self.lbl_time.config(fg=C["dim"]))
 
+        # macOS: pin button lives in the bottom bar
+        if sys.platform == "darwin":
+            self.btn_pin = tk.Label(bot, text=" 📌", bg=C["bg"], fg=C["green"],
+                                    font=(UI_FONT, 7), cursor="hand2")
+            self.btn_pin.pack(side="right")
+            self.btn_pin.bind("<Button-1>", self._toggle_pin)
+            self.btn_pin.bind("<Enter>",    lambda _: self.btn_pin.config(bg=C["bar_bg"]))
+            self.btn_pin.bind("<Leave>",    lambda _: self.btn_pin.config(bg=C["bg"]))
+
         # Error label (hidden until an error occurs)
         self.lbl_err = tk.Label(body, text="",
                                 bg=C["bg"], fg=C["red"],
@@ -369,13 +407,23 @@ class App:
                                 wraplength=WIN_W - 24, justify="left", anchor="w")
 
         # ── Resize handles (edges + corners, placed last to stay on top) ────
+        # macOS tkinter uses different cursor names than Windows
+        if sys.platform == "darwin":
+            cur_ew, cur_ns, cur_sw, cur_se = (
+                "sb_h_double_arrow", "sb_v_double_arrow",
+                "bottom_left_corner", "bottom_right_corner",
+            )
+        else:
+            cur_ew, cur_ns, cur_sw, cur_se = (
+                "size_we", "size_ns", "size_ne_sw", "size_nw_se",
+            )
         G = 6
         for cursor, place_kw, direction in [
-            ("size_we",    {"x": 0,    "y": 0, "width": G,    "relheight": 1},                  "w"),
-            ("size_we",    {"relx": 1, "y": 0, "width": G,    "relheight": 1, "anchor": "ne"},  "e"),
-            ("size_ns",    {"x": 0,    "rely": 1, "relwidth": 1, "height": G, "anchor": "sw"},  "s"),
-            ("size_ne_sw", {"x": 0,    "rely": 1, "width": G*2, "height": G*2, "anchor": "sw"}, "sw"),
-            ("size_nw_se", {"relx": 1, "rely": 1, "width": G*2, "height": G*2, "anchor": "se"}, "se"),
+            (cur_ew, {"x": 0,    "y": 0, "width": G,    "relheight": 1},                  "w"),
+            (cur_ew, {"relx": 1, "y": 0, "width": G,    "relheight": 1, "anchor": "ne"},  "e"),
+            (cur_ns, {"x": 0,    "rely": 1, "relwidth": 1, "height": G, "anchor": "sw"},  "s"),
+            (cur_sw, {"x": 0,    "rely": 1, "width": G*2, "height": G*2, "anchor": "sw"}, "sw"),
+            (cur_se, {"relx": 1, "rely": 1, "width": G*2, "height": G*2, "anchor": "se"}, "se"),
         ]:
             f = tk.Frame(root, bg=C["bg"], cursor=cursor)
             f.place(**place_kw)
@@ -495,7 +543,11 @@ class App:
     def _toggle_pin(self, _=None) -> None:
         self._topmost = not self._topmost
         self.root.attributes("-topmost", self._topmost)
-        self.btn_pin.config(fg=C["fg"] if self._topmost else C["dim"])
+        if sys.platform == "darwin":
+            # macOS bottom bar: green = pinned, dim = unpinned
+            self.btn_pin.config(fg=C["green"] if self._topmost else C["dim"])
+        else:
+            self.btn_pin.config(fg=C["fg"] if self._topmost else C["dim"])
 
     # ── UI updates ────────────────────────────────────────────────────────────
     def _set_row(
