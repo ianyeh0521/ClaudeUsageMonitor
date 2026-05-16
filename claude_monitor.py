@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Claude Usage Monitor
-Floating Windows widget showing Claude Code 5h/7d rate limit utilisation.
+Floating widget showing Claude Code 5h/7d rate limit utilisation.
 Requires: Claude Code installed and logged in (credentials at ~/.claude/.credentials.json)
 """
 import tkinter as tk
@@ -15,6 +15,14 @@ import ctypes
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
+
+# Platform-appropriate UI font
+if sys.platform == "darwin":
+    UI_FONT = "Helvetica Neue"
+elif sys.platform == "win32":
+    UI_FONT = "Segoe UI"
+else:
+    UI_FONT = "DejaVu Sans"
 
 try:
     import pystray
@@ -263,7 +271,7 @@ class App:
         title_lbl = tk.Label(
             tbar, text="  ◉  Claude Monitor",
             bg=C["title"], fg=C["fg"],
-            font=("Segoe UI", 9, "bold"), pady=6,
+            font=(UI_FONT, 9, "bold"), pady=6,
         )
         title_lbl.pack(side="left")
         title_lbl.bind("<Button-1>",        self._drag_start)
@@ -273,7 +281,7 @@ class App:
         # Close ✕  (hide to tray when tray is available, otherwise exit)
         btn_x = tk.Label(
             tbar, text=" ✕ ", bg=C["title"], fg=C["dim"],
-            font=("Segoe UI", 9), cursor="hand2", pady=6,
+            font=(UI_FONT, 9), cursor="hand2", pady=6,
         )
         btn_x.pack(side="right")
         close_cmd = self._hide if HAS_TRAY else root.destroy
@@ -284,7 +292,7 @@ class App:
         # Pin 📌
         self.btn_pin = tk.Label(
             tbar, text=" 📌 ", bg=C["title"], fg=C["fg"],
-            font=("Segoe UI", 9), cursor="hand2", pady=6,
+            font=(UI_FONT, 9), cursor="hand2", pady=6,
         )
         self.btn_pin.pack(side="right")
         self.btn_pin.bind("<Button-1>", self._toggle_pin)
@@ -298,20 +306,20 @@ class App:
         # 5h row
         tk.Label(body, text="5h Session Limit",
                  bg=C["bg"], fg=C["fg"],
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+                 font=(UI_FONT, 8, "bold")).pack(anchor="w")
 
         row5 = tk.Frame(body, bg=C["bg"])
         row5.pack(fill="x", pady=(3, 0))
         self.pct5h = tk.Label(row5, text="  0%", width=5,
                               bg=C["bg"], fg=C["dim"],
-                              font=("Segoe UI", 8, "bold"), anchor="e")
+                              font=(UI_FONT, 8, "bold"), anchor="e")
         self.pct5h.pack(side="right")
         self.bar5h = Bar(row5)
         self.bar5h.pack(side="left", fill="x", expand=True, pady=1)
 
         self.rst5h = tk.Label(body, text="",
                               bg=C["bg"], fg=C["dim"],
-                              font=("Segoe UI", 7))
+                              font=(UI_FONT, 7))
         self.rst5h.pack(anchor="w", pady=(1, 4))
 
         tk.Frame(body, bg=C["sep"], height=1).pack(fill="x")
@@ -319,20 +327,20 @@ class App:
         # 7d row
         tk.Label(body, text="7d Weekly Limit",
                  bg=C["bg"], fg=C["fg"],
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(6, 0))
+                 font=(UI_FONT, 8, "bold")).pack(anchor="w", pady=(6, 0))
 
         row7 = tk.Frame(body, bg=C["bg"])
         row7.pack(fill="x", pady=(3, 0))
         self.pct7d = tk.Label(row7, text="  0%", width=5,
                               bg=C["bg"], fg=C["dim"],
-                              font=("Segoe UI", 8, "bold"), anchor="e")
+                              font=(UI_FONT, 8, "bold"), anchor="e")
         self.pct7d.pack(side="right")
         self.bar7d = Bar(row7)
         self.bar7d.pack(side="left", fill="x", expand=True, pady=1)
 
         self.rst7d = tk.Label(body, text="",
                               bg=C["bg"], fg=C["dim"],
-                              font=("Segoe UI", 7))
+                              font=(UI_FONT, 7))
         self.rst7d.pack(anchor="w", pady=(1, 4))
 
         tk.Frame(body, bg=C["sep"], height=1).pack(fill="x")
@@ -343,12 +351,12 @@ class App:
 
         self.lbl_cost = tk.Label(bot, text="Today:  --",
                                  bg=C["bg"], fg=C["fg"],
-                                 font=("Segoe UI", 8))
+                                 font=(UI_FONT, 8))
         self.lbl_cost.pack(side="left")
 
         self.lbl_time = tk.Label(bot, text="",
                                  bg=C["bg"], fg=C["dim"],
-                                 font=("Segoe UI", 7), cursor="hand2")
+                                 font=(UI_FONT, 7), cursor="hand2")
         self.lbl_time.pack(side="right")
         self.lbl_time.bind("<Button-1>", lambda _: self._refresh())
         self.lbl_time.bind("<Enter>",    lambda _: self.lbl_time.config(fg=C["fg"]))
@@ -357,7 +365,7 @@ class App:
         # Error label (hidden until an error occurs)
         self.lbl_err = tk.Label(body, text="",
                                 bg=C["bg"], fg=C["red"],
-                                font=("Segoe UI", 7),
+                                font=(UI_FONT, 7),
                                 wraplength=WIN_W - 24, justify="left", anchor="w")
 
         # ── Resize handles (edges + corners, placed last to stay on top) ────
@@ -596,17 +604,28 @@ class App:
 
 
 # ─── Single-instance guard ────────────────────────────────────────────────────
+_lock_file = None  # kept alive to hold the macOS/Linux lock
+
+
 def ensure_single_instance() -> None:
-    """Exit immediately if another instance is already running (Windows only)."""
-    if sys.platform != "win32":
-        return
-    _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "ClaudeMonitor_SingleInstance")
-    if ctypes.windll.kernel32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
-        sys.exit(0)
+    """Exit immediately if another instance is already running."""
+    global _lock_file
+    if sys.platform == "win32":
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "ClaudeMonitor_SingleInstance")
+        if ctypes.windll.kernel32.GetLastError() == 183:   # ERROR_ALREADY_EXISTS
+            sys.exit(0)
+    else:
+        import fcntl
+        lock_path = Path.home() / ".claude" / "claude_monitor.lock"
+        _lock_file = open(lock_path, "w")
+        try:
+            fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            sys.exit(0)
 
 
 def set_dpi_aware() -> None:
-    """Enable Per-Monitor DPI awareness so tkinter renders crisp text on HiDPI screens."""
+    """Enable Per-Monitor DPI awareness on Windows HiDPI screens."""
     if sys.platform != "win32":
         return
     try:

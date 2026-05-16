@@ -9,9 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -40,3 +39,42 @@ jobs:
         with:
           files: dist/ClaudeMonitor.exe
           generate_release_notes: true
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python3 -m pip install pyinstaller pystray pillow
+
+      - name: Build app
+        run: |
+          python3 -m PyInstaller \
+            --windowed \
+            --name ClaudeMonitor \
+            --hidden-import pystray._darwin \
+            --hidden-import PIL._tkinter_finder \
+            --osx-bundle-identifier com.claudemonitor.app \
+            --clean \
+            claude_monitor.py
+
+      - name: Hide Dock icon
+        run: |
+          PLIST="dist/ClaudeMonitor.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$PLIST" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Set :LSUIElement true"     "$PLIST"
+
+      - name: Zip app bundle
+        run: cd dist && zip -r ClaudeMonitor-macOS.zip ClaudeMonitor.app
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ClaudeMonitor-macOS.zip
+          generate_release_notes: false
